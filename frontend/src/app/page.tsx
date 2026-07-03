@@ -1,77 +1,102 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import type { Dataset, Run } from '@/lib/api'
+import { listRuns } from '@/lib/api'
+import UploadPanel from '@/components/UploadPanel'
+import ChatPanel from '@/components/ChatPanel'
+import HistoryPanel from '@/components/HistoryPanel'
+import StubCard from '@/components/StubCard'
+
+const STUBS = [
+  { title: 'Excel upload', description: 'Load .xlsx workbooks with a sheet picker.', phase: 'Phase 3', icon: '📈' },
+  { title: 'Multi-file compare', description: 'Load several datasets and ask cross-dataset questions.', phase: 'Phase 3', icon: '🔀' },
+  { title: 'Interactive charts', description: 'The agent picks a chart type and renders it inline (zoom / hover / filter).', phase: 'Phase 2', icon: '📊' },
+  { title: 'Auto-profiling', description: 'Columns, types, ranges and missing values appear on upload.', phase: 'Phase 2', icon: '🔎' },
+  { title: 'Data-quality flags', description: 'Automatic warnings for nulls, duplicates and outliers.', phase: 'Phase 2', icon: '🚩' },
+  { title: 'Follow-up suggestions', description: 'Clickable follow-up questions after each answer.', phase: 'Phase 2', icon: '💡' },
+  { title: 'Pinnable dashboard', description: 'Pin answers and charts to a curated, persistent dashboard.', phase: 'Phase 3', icon: '📌' },
+  { title: 'Exports', description: 'Download cleaned CSVs and formatted reports.', phase: 'Phase 3', icon: '⬇️' },
+]
 
 export default function Home() {
-  const [input, setInput] = useState('')
-  const [result, setResult] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [active, setActive] = useState<Dataset | null>(null)
+  const [runs, setRuns] = useState<Run[]>([])
+  const [runsLoading, setRunsLoading] = useState(false)
+  const [runsError, setRunsError] = useState<string | null>(null)
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!input.trim()) return
-    setLoading(true)
-    setError(null)
-    setResult(null)
+  const refreshRuns = useCallback(async (datasetId: string) => {
+    setRunsLoading(true)
+    setRunsError(null)
     try {
-      const res = await fetch('/runs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input_text: input }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data.detail?.message ?? `Request failed (${res.status})`)
-      } else if (data.data?.error) {
-        setError(data.data.error)
-      } else {
-        setResult(data.data.output_text)
-      }
-    } catch {
-      setError('Network error — is the server running?')
+      setRuns(await listRuns(datasetId))
+    } catch (e) {
+      setRunsError(e instanceof Error ? e.message : 'Could not load history.')
     } finally {
-      setLoading(false)
+      setRunsLoading(false)
     }
+  }, [])
+
+  useEffect(() => {
+    if (active) void refreshRuns(active.dataset_id)
+    else setRuns([])
+  }, [active, refreshRuns])
+
+  const handleUploaded = (ds: Dataset) => {
+    setActive(ds)
+    setRuns([])
+  }
+
+  const handleRunComplete = () => {
+    if (active) void refreshRuns(active.dataset_id)
   }
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-16">
-      <h1 className="mb-8 text-3xl font-bold tracking-tight">Agent</h1>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <textarea
-          className="w-full rounded-lg border border-gray-300 p-3 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          rows={4}
-          placeholder="Enter text to transform…"
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          disabled={loading}
-        />
-        <button
-          type="submit"
-          disabled={loading || !input.trim()}
-          className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {loading ? 'Running…' : 'Run'}
-        </button>
-      </form>
-
-      {error && (
-        <div className="mt-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {error}
+    <main className="mx-auto min-h-screen max-w-7xl px-4 py-6 lg:px-8">
+      <header className="mb-6">
+        <div className="flex items-center gap-3">
+          <span aria-hidden className="text-2xl">🧮</span>
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-slate-900">Data Analysis Agent</h1>
+            <p className="text-sm text-slate-500">
+              Upload a CSV and ask questions in plain language — the agent writes, runs and explains the pandas.
+            </p>
+          </div>
         </div>
-      )}
+      </header>
 
-      {result && (
-        <div className="mt-6 rounded-lg border border-gray-200 bg-white p-4 text-sm whitespace-pre-wrap shadow-sm">
-          {result}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[340px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)_320px]">
+        {/* Left column: upload + history */}
+        <div className="space-y-6">
+          <UploadPanel active={active} onUploaded={handleUploaded} />
+          <HistoryPanel runs={runs} loading={runsLoading} error={runsError} hasDataset={!!active} />
         </div>
-      )}
 
-      {!result && !error && !loading && (
-        <p className="mt-10 text-center text-sm text-gray-400">Results will appear here.</p>
-      )}
+        {/* Center column: chat */}
+        <div className="min-h-[70vh] lg:h-[calc(100vh-8rem)]">
+          <ChatPanel active={active} onRunComplete={handleRunComplete} />
+        </div>
+
+        {/* Right column: the product vision as labelled stubs */}
+        <aside className="lg:col-span-2 xl:col-span-1">
+          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-800">Coming soon</h2>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
+                Roadmap
+              </span>
+            </div>
+            <p className="mb-4 text-xs text-slate-400">
+              These are part of the vision but not yet functional. They are disabled placeholders, not bugs.
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1">
+              {STUBS.map(s => (
+                <StubCard key={s.title} {...s} />
+              ))}
+            </div>
+          </div>
+        </aside>
+      </div>
     </main>
   )
 }

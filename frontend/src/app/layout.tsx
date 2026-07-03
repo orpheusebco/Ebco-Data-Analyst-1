@@ -2,8 +2,8 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Agent',
-  description: 'AI agent interface',
+  title: 'Data Analysis Agent',
+  description: 'Upload a CSV and explore it with natural-language questions.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

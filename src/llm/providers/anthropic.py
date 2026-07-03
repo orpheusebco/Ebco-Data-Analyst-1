@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+
 import anthropic as _sdk
 
 
@@ -8,9 +10,11 @@ class AnthropicProvider:
         self._client = _sdk.Anthropic(api_key=api_key)
         self._model = model or self.DEFAULT_MODEL
 
-    def call_model(self, prompt: str, *, system: str | None = None) -> str:
+    def call_model(
+        self, prompt: str, *, system: str | None = None, model: str | None = None
+    ) -> str:
         kwargs: dict = dict(
-            model=self._model,
+            model=model or self._model,
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -18,3 +22,18 @@ class AnthropicProvider:
             kwargs["system"] = system
         msg = self._client.messages.create(**kwargs)
         return msg.content[0].text
+
+    def stream_model(
+        self, prompt: str, *, system: str | None = None, model: str | None = None
+    ) -> Iterator[str]:
+        kwargs: dict = dict(
+            model=model or self._model,
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        if system:
+            kwargs["system"] = system
+        with self._client.messages.stream(**kwargs) as stream:
+            for text in stream.text_stream:
+                if text:
+                    yield text
