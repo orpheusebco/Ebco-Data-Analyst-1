@@ -61,10 +61,13 @@ Auto-generated profile + data-quality flags for a dataset.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | id | str (uuid) | yes | Primary key |
-| dataset_id | str | yes | FK → Dataset |
-| columns | str (JSON) | yes | Per-column: name, dtype, min/max/range, null_count, unique_count |
-| quality_flags | str (JSON array) | yes | e.g. high-null column, duplicate rows, constant column, mixed types |
+| dataset_id | str | yes | FK → Dataset (indexed) |
+| profile_json | str (Text, JSON) | yes | Single column holding the full profile dict (see below) |
 | created_at | datetime | yes | Profiling time |
+
+`profile_json` deserializes to a dict with top-level keys `row_count`, `column_count`, `columns`, and `quality_flags` (produced by `src/analysis/profiler.py:build_profile`):
+- `columns` — array of per-column objects: `name`, `dtype`, `null_count`, `null_pct`, `distinct_count`, `min`, `max`, `sample_values` (note: `distinct_count`, not `unique_count`; `min`/`max` are non-null only for numeric/datetime columns; all values are JSON-safe with NaN→null).
+- `quality_flags` — array of `{ type, severity, message, columns }` objects; `type` is one of `high_null`, `constant_column`, `duplicate_rows`, `numeric_outliers`.
 
 ### Entity: PinnedItem (Phase 3)
 An answer/chart pinned to the persistent dashboard.

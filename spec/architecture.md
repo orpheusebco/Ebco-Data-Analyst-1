@@ -53,7 +53,7 @@ A single-process local web application. A Next.js browser UI talks to a FastAPI 
 
 - **Language:** Python 3.12 (backend), TypeScript (frontend)
 - **Agent framework:** LangGraph (multi-node loop with conditional retry/clarify edges)
-- **LLM provider + model:** Google Gemini via `AGENT_GEMINI_API_KEY`; model `gemini-2.5-pro` for plan/write-code/narrate, `gemini-2.5-flash` for chart-spec + follow-up suggestions (env-configurable via `AGENT_LLM_MODEL`; provider auto-detected)
+- **LLM provider + model:** Google Gemini via `AGENT_GEMINI_API_KEY`; **flash-only** — every agent node defaults to `gemini-2.5-flash` (`MODEL_NODE_DEFAULT = MODEL_FLASH_DEFAULT` in `src/graph/nodes.py`). `gemini-2.5-pro` is intentionally not used (flash cuts latency ~2.25x; the execute→inspect→retry loop self-corrects codegen slips). Env-configurable via `AGENT_LLM_MODEL` (overrides all nodes); provider auto-detected
 - **Backend:** FastAPI (with SSE streaming via `StreamingResponse`)
 - **Database + ORM:** SQLite + SQLAlchemy 2.0 + Alembic
 - **Frontend:** Next.js 15 + React 19 + Tailwind (static-exported, served at `:8001/app/`)
@@ -70,7 +70,7 @@ A single-process local web application. A Next.js browser UI talks to a FastAPI 
 | fastapi / sqlalchemy / alembic | (already present) | API + storage |
 | Playwright | ^1.48 | Frontend E2E smoke tests |
 
-> **Assumed:** Gemini model IDs `gemini-2.5-pro` / `gemini-2.5-flash` (not specified in the brief); overridable via `AGENT_LLM_MODEL`, so a single value applies to all nodes unless the code sets per-node overrides.
+> **Assumed:** Gemini model ID `gemini-2.5-flash` (not specified in the brief) is used for all nodes; overridable via `AGENT_LLM_MODEL`. `gemini-2.5-pro` is deliberately unused (see flash-only invariant above).
 
 **Avoid:** any code-sandbox library (explicitly out of scope — trusted local machine); any cloud object storage; SQLAlchemy async engine (keep the sync session the skeleton already uses); sending full DataFrames or full columns to the LLM.
 

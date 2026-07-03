@@ -29,6 +29,18 @@ REST + Server-Sent Events (SSE) over FastAPI. Served at `:8001`; the static fron
 **Purpose:** List loaded datasets (for the dataset switcher).
 **Response:** `{ "datasets": [ { "dataset_id", "name", "kind", "row_count", "column_count" } ] }`
 
+### `POST /datasets/excel/sheets`
+
+**Purpose:** Inspect an uploaded Excel workbook and return its sheet names so the client can show the Excel sheet picker before committing to a `POST /datasets` upload.
+
+**Request:** `multipart/form-data` — `file` (the .xlsx).
+**Response:** `{ "sheets": ["Sheet1", "Sheet2", ...] }`
+
+### `GET /datasets/{dataset_id}/profile`
+
+**Purpose:** Return the persisted `DatasetProfile` for a dataset (columns + quality flags) for the profile panel.
+**Response:** `{ "profile": { "row_count", "column_count", "columns": [...], "quality_flags": [...] } }`
+
 ### `POST /ask`  (SSE stream)
 
 **Purpose:** Ask a natural-language question against one (Ph1) or several (Ph3) datasets; runs the agent and streams the answer.
@@ -40,7 +52,7 @@ REST + Server-Sent Events (SSE) over FastAPI. Served at `:8001`; the static fron
 
 **Response:** `text/event-stream`. Event types:
 - `token` — `{ "text": "..." }` incremental answer text
-- `status` — `{ "phase": "planning|writing_code|executing|inspecting|retrying" }` drives the spinner
+- `status` — `{ "phase": "planning|writing_code|retrying|executing|inspecting|narrating|charting" }` drives the spinner. `write_code` emits `writing_code` on the first attempt and `retrying` on subsequent attempts; `chart` emits `charting`. (`clarify`/`followups` are their own event types, not `status` phases.)
 - `clarify` — `{ "question": "..." }` when the agent needs clarification
 - `chart` (Ph2) — `{ "spec": { plotly json } }`
 - `followups` (Ph2) — `{ "items": ["...", "..."] }`

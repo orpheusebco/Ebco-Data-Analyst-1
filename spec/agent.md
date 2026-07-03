@@ -12,14 +12,17 @@
 
 | Agent / Node | Provider | Model ID | Rationale |
 |-------------|----------|----------|-----------|
-| `plan` | Gemini | `gemini-2.5-pro` | Strategy for complex asks — needs strong reasoning |
-| `write_code` | Gemini | `gemini-2.5-pro` | Correct pandas generation is the core quality driver |
-| `inspect` | Gemini | `gemini-2.5-pro` | Judges whether the result answers the question / diagnoses errors |
-| `narrate` | Gemini | `gemini-2.5-pro` | Plain-language answer with key numbers; streamed |
+| `plan` | Gemini | `gemini-2.5-flash` | Strategy for the ask; flash is fast and sufficient |
+| `write_code` | Gemini | `gemini-2.5-flash` | Pandas generation; execute→inspect→retry loop self-corrects any slips |
+| `inspect` | Gemini | `gemini-2.5-flash` | Judges whether the result answers the question / diagnoses errors |
+| `narrate` | Gemini | `gemini-2.5-flash` | Plain-language answer with key numbers; streamed |
 | `chart` (Ph2) | Gemini | `gemini-2.5-flash` | Structured chart-type + spec selection; latency-sensitive |
 | `suggest_followups` (Ph2) | Gemini | `gemini-2.5-flash` | Cheap, short generation |
+| `clarify` | Gemini | `gemini-2.5-flash` | Short clarifying question |
 
-Model is env-configurable via `AGENT_LLM_MODEL`; provider auto-detected from `AGENT_GEMINI_API_KEY`.
+**Flash-only invariant:** every node defaults to `gemini-2.5-flash` (`MODEL_NODE_DEFAULT = MODEL_FLASH_DEFAULT` in `src/graph/nodes.py`). `gemini-2.5-pro` is intentionally **not** used — flash cuts end-to-end latency ~2.25x and the execute→inspect→retry loop self-corrects any codegen slips, so the extra pro reasoning is not needed. `MODEL_PRO_DEFAULT` remains defined only as an escape hatch if a future node needs it.
+
+Model is env-configurable via `AGENT_LLM_MODEL` (overrides all nodes when set); provider auto-detected from `AGENT_GEMINI_API_KEY`.
 
 **Fallback behaviour:** Each LLM call retries up to 2 times with exponential backoff on transient errors (rate limit / 5xx). On exhaustion the node sets `state["error"]` and routes to `handle_error`, which streams a clear error and marks the run `failed`. No offline/stub path — tests use the real Gemini key from `.env`.
 
