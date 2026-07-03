@@ -9,6 +9,7 @@ import ChatPanel from '@/components/ChatPanel'
 import HistoryPanel from '@/components/HistoryPanel'
 import ProfilePanel from '@/components/ProfilePanel'
 import Dashboard from '@/components/Dashboard'
+import EbcoLogo from '@/components/EbcoLogo'
 
 export default function Home() {
   const [datasets, setDatasets] = useState<Dataset[]>([])
@@ -111,7 +112,7 @@ export default function Home() {
 
   return (
     <main className="mx-auto min-h-screen max-w-7xl px-4 py-6 lg:px-8">
-      <header className="mb-6">
+      <header className="mb-6 flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
           <span aria-hidden className="text-2xl">🧮</span>
           <div>
@@ -122,6 +123,7 @@ export default function Home() {
             </p>
           </div>
         </div>
+        <EbcoLogo className="h-12 w-12 shrink-0 rounded-lg sm:h-14 sm:w-14" />
       </header>
 
       {/* The curated dashboard is the primary view — persisted pinned answers. */}
