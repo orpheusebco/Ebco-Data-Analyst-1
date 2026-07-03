@@ -19,6 +19,11 @@ _PROMPT_DIR = Path(__file__).parent.parent / "prompts"
 
 MODEL_PRO_DEFAULT = "gemini-2.5-pro"
 MODEL_FLASH_DEFAULT = "gemini-2.5-flash"
+# Default node model. Flash is ~2-4x faster than pro and handles pandas codegen,
+# inspection, and narration well; the execute->inspect->retry loop self-corrects
+# any codegen slips, so we favor flash for latency. Bump a specific node back to
+# MODEL_PRO_DEFAULT if a harder-reasoning phase needs it.
+MODEL_NODE_DEFAULT = MODEL_FLASH_DEFAULT
 
 
 def _load_prompt(name: str) -> str:
@@ -79,10 +84,10 @@ def plan(state: AgentState) -> AgentState:
         )
         t0 = time.perf_counter()
         result = LLMClient().call_model(
-            prompt, system=_load_prompt("plan.md"), model=_model(MODEL_PRO_DEFAULT)
+            prompt, system=_load_prompt("plan.md"), model=_model(MODEL_NODE_DEFAULT)
         )
         if obs:
-            obs.llm("plan", _model(MODEL_PRO_DEFAULT), len(prompt),
+            obs.llm("plan", _model(MODEL_NODE_DEFAULT), len(prompt),
                     (time.perf_counter() - t0) * 1000)
             obs.node("plan")
         return {**state, "plan": result.strip(), "error": None}
@@ -118,11 +123,11 @@ def write_code(state: AgentState) -> AgentState:
         raw = LLMClient().call_model(
             prompt,
             system=_load_prompt("write_code.md"),
-            model=_model(MODEL_PRO_DEFAULT),
+            model=_model(MODEL_NODE_DEFAULT),
         )
         code = strip_code_fences(raw)
         if obs:
-            obs.llm("write_code", _model(MODEL_PRO_DEFAULT), len(prompt),
+            obs.llm("write_code", _model(MODEL_NODE_DEFAULT), len(prompt),
                     (time.perf_counter() - t0) * 1000, attempt=attempts + 1)
             obs.node("write_code", attempt=attempts + 1)
         return {**state, "code": code, "attempts": attempts + 1, "error": None}
@@ -177,7 +182,7 @@ def inspect(state: AgentState) -> AgentState:
         )
         t0 = time.perf_counter()
         raw = LLMClient().call_model(
-            prompt, system=_load_prompt("inspect.md"), model=_model(MODEL_PRO_DEFAULT)
+            prompt, system=_load_prompt("inspect.md"), model=_model(MODEL_NODE_DEFAULT)
         )
         parsed = _parse_json_object(raw)
         inspection = {
@@ -186,7 +191,7 @@ def inspect(state: AgentState) -> AgentState:
             "reason": str(parsed.get("reason", "")),
         }
         if obs:
-            obs.llm("inspect", _model(MODEL_PRO_DEFAULT), len(prompt),
+            obs.llm("inspect", _model(MODEL_NODE_DEFAULT), len(prompt),
                     (time.perf_counter() - t0) * 1000)
             obs.node("inspect", ok=inspection["ok"],
                      needs_clarification=inspection["needs_clarification"])
@@ -254,7 +259,7 @@ def narrate(state: AgentState) -> AgentState:
             f"{outcome}{note}"
         )
         t0 = time.perf_counter()
-        model = _model(MODEL_PRO_DEFAULT)
+        model = _model(MODEL_NODE_DEFAULT)
         pieces: list[str] = []
         for token in LLMClient().stream_model(
             prompt, system=_load_prompt("narrate.md"), model=model
