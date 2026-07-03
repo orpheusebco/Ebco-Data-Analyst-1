@@ -95,6 +95,71 @@ def load_csv(file_bytes: bytes, name: str) -> dict:
     }
 
 
+def list_excel_sheets(file_bytes: bytes, name: str) -> list[str]:
+    """Return the sheet names of an Excel workbook WITHOUT persisting anything."""
+    import io
+
+    try:
+        xls = pd.ExcelFile(io.BytesIO(file_bytes))
+        return list(xls.sheet_names)
+    except Exception as exc:  # noqa: BLE001 - surface a clean read error
+        raise ValueError(f"Could not read Excel workbook: {exc}") from exc
+
+
+def load_excel(file_bytes: bytes, name: str, sheet: str | None = None) -> dict:
+    """Persist an Excel upload, load the chosen sheet, and store a Dataset row.
+
+    Mirrors load_csv. `sheet` selects the worksheet (default: first sheet).
+    Returns a dict matching the POST /datasets response shape.
+    """
+    dataset_id = str(uuid4())
+    safe_name = Path(name).name or "upload.xlsx"
+    dest = _uploads_dir() / f"{dataset_id}__{safe_name}"
+    dest.write_bytes(file_bytes)
+
+    sheet_arg = sheet if sheet is not None else 0
+    try:
+        df = pd.read_excel(dest, sheet_name=sheet_arg, engine="openpyxl")
+    except Exception as exc:  # noqa: BLE001 - surface a clean load error
+        raise ValueError(f"Could not parse Excel: {exc}") from exc
+
+    register_dataframe(dataset_id, df)
+
+    row_count = int(df.shape[0])
+    column_count = int(df.shape[1])
+
+    profile = build_profile(df)
+
+    with create_db_session() as session:
+        session.add(
+            DatasetRow(
+                id=dataset_id,
+                name=safe_name,
+                source_path=str(dest),
+                kind="xlsx",
+                sheet=sheet,
+                row_count=row_count,
+                column_count=column_count,
+            )
+        )
+        session.add(
+            DatasetProfile(
+                dataset_id=dataset_id,
+                profile_json=json.dumps(profile),
+            )
+        )
+
+    return {
+        "dataset_id": dataset_id,
+        "name": safe_name,
+        "kind": "xlsx",
+        "sheet": sheet,
+        "row_count": row_count,
+        "column_count": column_count,
+        "profile": profile,
+    }
+
+
 def get_profile(dataset_id: str) -> dict | None:
     """Load and parse the persisted data profile for a dataset (reads DB)."""
     with create_db_session() as session:
@@ -117,11 +182,13 @@ def _reload_from_disk(dataset_id: str) -> pd.DataFrame | None:
             return None
         path = row.source_path
         kind = row.kind
+        sheet = row.sheet
     try:
         if kind == "csv":
             df = pd.read_csv(path)
         else:
-            df = pd.read_excel(path)
+            sheet_arg = sheet if sheet is not None else 0
+            df = pd.read_excel(path, sheet_name=sheet_arg, engine="openpyxl")
     except Exception:  # noqa: BLE001
         return None
     register_dataframe(dataset_id, df)

@@ -2,11 +2,12 @@ import { test, expect } from '@playwright/test'
 
 // Smoke test — runs against the live app at :8001/app/. It asserts the page
 // renders REAL, STYLED content (not a bare 200), the core controls are present
-// and interactive, and the roadmap stubs announce themselves as "coming soon".
-// This test does NOT require the agent to answer (no backend LLM call), only
-// that the static export is served and wired.
+// and interactive, and — now that Phase 3 shipped — that NO "coming soon"
+// stubs remain: every surface (upload incl. Excel, dataset switcher, dashboard)
+// is functional. This test does NOT require the agent to answer (no backend LLM
+// call), only that the static export is served and wired.
 
-test('workspace loads, is styled, and shows core controls + labelled stubs', async ({ page }) => {
+test('workspace loads, is styled, shows core controls, and has NO stubs', async ({ page }) => {
   await page.goto('')
 
   // Real content, not a blank shell.
@@ -17,35 +18,30 @@ test('workspace loads, is styled, and shows core controls + labelled stubs', asy
   const fontWeight = await heading.evaluate(el => getComputedStyle(el).fontWeight)
   expect(Number(fontWeight)).toBeGreaterThanOrEqual(600)
 
-  // Upload control present.
-  await expect(page.getByLabel('Choose CSV file')).toBeVisible()
+  // Upload control present and accepts CSV + Excel.
+  await expect(page.getByLabel('Choose file')).toBeVisible()
   await expect(page.getByTestId('dropzone')).toBeVisible()
+  const accept = await page.locator('#csv-input').getAttribute('accept')
+  expect(accept).toContain('.csv')
+  expect(accept).toContain('.xlsx')
+  expect(accept).toContain('.xls')
 
-  // Empty states are designed, not blank.
-  await expect(page.getByTestId('upload-empty')).toBeVisible()
-  await expect(page.getByTestId('chat-empty')).toBeVisible()
-  await expect(page.getByTestId('history-empty')).toBeVisible()
+  // Dataset switcher (multi-file compare) and dashboard containers render.
+  await expect(page.getByTestId('dataset-switcher')).toBeVisible()
+  await expect(page.getByTestId('dashboard')).toBeVisible()
 
-  // Chat input exists but is disabled until a dataset loads.
+  // Chat input exists (enabled or disabled depending on whether the live
+  // backend already has a dataset loaded — both are valid states).
   const input = page.getByTestId('question-input')
   await expect(input).toBeVisible()
-  await expect(input).toBeDisabled()
 
-  // Labelled stubs are present and badged as coming soon.
-  const badges = page.getByTestId('coming-soon-badge')
-  await expect(badges.first()).toBeVisible()
-  expect(await badges.count()).toBeGreaterThanOrEqual(4)
-  await expect(page.getByText('Excel upload')).toBeVisible()
-  await expect(page.getByText('Multi-file compare')).toBeVisible()
-  await expect(page.getByText('Pinnable dashboard')).toBeVisible()
-  await expect(page.getByText('Exports')).toBeVisible()
+  // NO labelled stubs remain anywhere on the page.
+  await expect(page.getByText('Coming soon', { exact: false })).toHaveCount(0)
+  await expect(page.getByTestId('stub-card')).toHaveCount(0)
+  await expect(page.getByTestId('coming-soon-badge')).toHaveCount(0)
 
-  // The now-shipped Phase 2 features are no longer labelled stubs.
-  await expect(page.getByText('Interactive charts')).toHaveCount(0)
-  await expect(page.getByText('Auto-profiling')).toHaveCount(0)
-  await expect(page.getByText('Data-quality flags')).toHaveCount(0)
-  await expect(page.getByText('Follow-up suggestions')).toHaveCount(0)
-
-  // Stub cards are non-interactive placeholders.
-  await expect(page.getByTestId('stub-card').first()).toHaveAttribute('aria-disabled', 'true')
+  // The Phase 3 features are now real, not roadmap placeholders.
+  await expect(page.getByText('Excel upload')).toHaveCount(0)
+  await expect(page.getByText('Multi-file compare')).toHaveCount(0)
+  await expect(page.getByText('Pinnable dashboard')).toHaveCount(0)
 })

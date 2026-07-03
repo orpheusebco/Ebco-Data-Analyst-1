@@ -7,6 +7,7 @@ import type { AskEvent, Dataset } from '@/lib/api'
 import { ask } from '@/lib/api'
 import ChartView from '@/components/ChartView'
 import FollowUps from '@/components/FollowUps'
+import ExportBar from '@/components/ExportBar'
 
 interface Turn {
   id: string
@@ -17,6 +18,7 @@ interface Turn {
   status: string // '' when settled
   chartSpec: unknown | null
   followups: string[]
+  runId: string | null
 }
 
 const PHASE_LABEL: Record<string, string> = {
@@ -28,11 +30,15 @@ const PHASE_LABEL: Record<string, string> = {
 }
 
 interface ChatPanelProps {
-  active: Dataset | null
+  // The datasets currently in scope. The first is the primary; questions run
+  // against ALL selected ids (cross-dataset when 2+ are selected).
+  datasets: Dataset[]
   onRunComplete: () => void
+  onPinned: () => void
 }
 
-export default function ChatPanel({ active, onRunComplete }: ChatPanelProps) {
+export default function ChatPanel({ datasets, onRunComplete, onPinned }: ChatPanelProps) {
+  const canAsk = datasets.length > 0
   const [turns, setTurns] = useState<Turn[]>([])
   const [input, setInput] = useState('')
   const [phase, setPhase] = useState<string | null>(null)
@@ -50,12 +56,12 @@ export default function ChatPanel({ active, onRunComplete }: ChatPanelProps) {
 
   async function runQuestion(raw: string) {
     const question = raw.trim()
-    if (!question || !active || streaming) return
+    if (!question || !canAsk || streaming) return
 
     const id = `${Date.now()}`
     setTurns(prev => [
       ...prev,
-      { id, question, answer: '', clarify: null, error: null, status: 'planning', chartSpec: null, followups: [] },
+      { id, question, answer: '', clarify: null, error: null, status: 'planning', chartSpec: null, followups: [], runId: null },
     ])
     setInput('')
     setStreaming(true)
@@ -86,7 +92,7 @@ export default function ChatPanel({ active, onRunComplete }: ChatPanelProps) {
           update({ error: ev.message, status: '' })
           break
         case 'done':
-          update({ status: '' })
+          update({ status: '', runId: ev.run_id || null })
           break
         default:
           break
@@ -94,7 +100,7 @@ export default function ChatPanel({ active, onRunComplete }: ChatPanelProps) {
     }
 
     try {
-      await ask([active.dataset_id], question, onEvent)
+      await ask(datasets.map(d => d.dataset_id), question, onEvent)
     } catch (err) {
       update({ error: err instanceof Error ? err.message : 'The request failed.', status: '' })
     } finally {
@@ -111,7 +117,11 @@ export default function ChatPanel({ active, onRunComplete }: ChatPanelProps) {
           Ask your data
         </h2>
         <p className="text-xs text-slate-400">
-          {active ? `Analysing ${active.name}` : 'Upload a CSV to start asking questions.'}
+          {datasets.length === 0
+            ? 'Load a dataset to start asking questions.'
+            : datasets.length === 1
+              ? `Analysing ${datasets[0].name}`
+              : `Comparing ${datasets.length} datasets: ${datasets.map(d => d.name).join(', ')}`}
         </p>
       </div>
 
@@ -120,7 +130,7 @@ export default function ChatPanel({ active, onRunComplete }: ChatPanelProps) {
           <div data-testid="chat-empty" className="flex h-full flex-col items-center justify-center text-center">
             <span aria-hidden className="text-3xl">💬</span>
             <p className="mt-3 text-sm font-medium text-slate-600">
-              {active ? 'Ask a question about your data' : 'Upload a CSV to begin'}
+              {canAsk ? 'Ask a question about your data' : 'Load a dataset to begin'}
             </p>
             <p className="mt-1 max-w-xs text-xs text-slate-400">
               e.g. &ldquo;What is the average revenue grouped by region?&rdquo; The agent writes and runs
@@ -164,6 +174,9 @@ export default function ChatPanel({ active, onRunComplete }: ChatPanelProps) {
                     {turn.followups.length > 0 && (
                       <FollowUps items={turn.followups} onSelect={q => void runQuestion(q)} disabled={streaming} />
                     )}
+                    {turn.status === '' && turn.runId && !turn.error && (
+                      <ExportBar runId={turn.runId} title={turn.question} onPinned={onPinned} />
+                    )}
                     {turn.clarify && (
                       <div
                         data-testid="clarify"
@@ -205,7 +218,7 @@ export default function ChatPanel({ active, onRunComplete }: ChatPanelProps) {
             data-testid="question-input"
             rows={1}
             value={input}
-            disabled={!active || streaming}
+            disabled={!canAsk || streaming}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -213,13 +226,13 @@ export default function ChatPanel({ active, onRunComplete }: ChatPanelProps) {
                 void handleSubmit(e as unknown as React.FormEvent)
               }
             }}
-            placeholder={active ? 'Ask a question…' : 'Upload a CSV first'}
+            placeholder={canAsk ? 'Ask a question…' : 'Load a dataset first'}
             className="max-h-32 min-h-[42px] flex-1 resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-slate-50"
           />
           <button
             type="submit"
             data-testid="ask-button"
-            disabled={!active || streaming || !input.trim()}
+            disabled={!canAsk || streaming || !input.trim()}
             className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50"
           >
             {streaming ? 'Thinking…' : 'Ask'}

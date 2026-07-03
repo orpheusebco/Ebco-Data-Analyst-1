@@ -3,8 +3,13 @@ answer the user's question against the provided in-memory DataFrame(s).
 
 Environment:
 - `pandas` is imported as `pd`.
-- The DataFrame(s) already exist in scope under the exact variable name(s) given in the schema
-  (a single dataset is named `df`). Do NOT read any files, do NOT create sample data.
+- The DataFrame(s) already exist in scope under the exact variable name(s) given in the schema.
+  A single dataset is named `df`; when MULTIPLE datasets are provided the namespace has `df1`,
+  `df2`, ... The schema JSON lists the exact variable name per dataset under `"dataframe_var"` —
+  always use that name, never invent one. Do NOT read any files, do NOT create sample data.
+- When the question compares or combines datasets, join/merge/concat across the provided
+  DataFrames (e.g. `df1.merge(df2, on=<shared key>)`) using their `dataframe_var` names and the
+  shared columns visible in the schema.
 - You are given the column schema and a small sample of rows only. The FULL dataset (which may be
   far larger than the sample) is what your code runs against — so compute over the whole DataFrame,
   never over the sample.

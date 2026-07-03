@@ -22,6 +22,8 @@ def ask(req: AskRequest):
     question = (req.question or "").strip()
     if not question:
         raise api_error("EMPTY_QUESTION", "Question must not be empty.", 400)
+    if not req.dataset_ids:
+        raise api_error("NO_DATASET", "Select at least one dataset to ask a question.", 400)
     for ds_id in req.dataset_ids:
         if not store.dataset_exists(ds_id):
             raise api_error("UNKNOWN_DATASET", f"Unknown dataset_id: {ds_id}", 400)

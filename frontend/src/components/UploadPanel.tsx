@@ -2,11 +2,19 @@
 
 import { useRef, useState } from 'react'
 import type { Dataset } from '@/lib/api'
-import { uploadDataset } from '@/lib/api'
+import { fetchExcelSheets, uploadDataset } from '@/lib/api'
 
 interface UploadPanelProps {
   active: Dataset | null
   onUploaded: (ds: Dataset) => void
+}
+
+const CSV_EXTS = ['.csv']
+const EXCEL_EXTS = ['.xlsx', '.xls']
+
+function hasExt(name: string, exts: string[]): boolean {
+  const lower = name.toLowerCase()
+  return exts.some(ext => lower.endsWith(ext))
 }
 
 export default function UploadPanel({ active, onUploaded }: UploadPanelProps) {
@@ -14,24 +22,58 @@ export default function UploadPanel({ active, onUploaded }: UploadPanelProps) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
+  // When an Excel file is chosen we hold it here and show a sheet picker.
+  const [pendingExcel, setPendingExcel] = useState<{ file: File; sheets: string[] } | null>(null)
 
-  async function handleFile(file: File | undefined) {
-    if (!file) return
-    if (!file.name.toLowerCase().endsWith('.csv')) {
-      setError('Only .csv files are supported in Phase 1. (Excel is coming soon.)')
-      return
-    }
+  function resetInput() {
+    if (inputRef.current) inputRef.current.value = ''
+  }
+
+  async function doUpload(file: File, sheet?: string) {
     setBusy(true)
     setError(null)
     try {
-      const ds = await uploadDataset(file)
+      const ds = await uploadDataset(file, sheet)
       onUploaded(ds)
+      setPendingExcel(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upload failed.')
     } finally {
       setBusy(false)
-      if (inputRef.current) inputRef.current.value = ''
+      resetInput()
     }
+  }
+
+  async function handleFile(file: File | undefined) {
+    if (!file) return
+    setPendingExcel(null)
+    if (hasExt(file.name, CSV_EXTS)) {
+      await doUpload(file)
+      return
+    }
+    if (hasExt(file.name, EXCEL_EXTS)) {
+      setBusy(true)
+      setError(null)
+      try {
+        const sheets = await fetchExcelSheets(file)
+        if (sheets.length <= 1) {
+          // Single-sheet workbook — load it directly, no picker needed.
+          await uploadDataset(file, sheets[0])
+            .then(onUploaded)
+            .catch(e => setError(e instanceof Error ? e.message : 'Upload failed.'))
+        } else {
+          setPendingExcel({ file, sheets })
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Could not read workbook.')
+      } finally {
+        setBusy(false)
+        resetInput()
+      }
+      return
+    }
+    setError('Unsupported file type. Load a .csv, .xlsx or .xls file.')
+    resetInput()
   }
 
   return (
@@ -59,7 +101,7 @@ export default function UploadPanel({ active, onUploaded }: UploadPanelProps) {
         <input
           ref={inputRef}
           type="file"
-          accept=".csv,text/csv"
+          accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
           className="sr-only"
           id="csv-input"
           disabled={busy}
@@ -71,10 +113,42 @@ export default function UploadPanel({ active, onUploaded }: UploadPanelProps) {
             busy ? 'pointer-events-none opacity-60' : ''
           }`}
         >
-          {busy ? 'Uploading…' : 'Choose CSV file'}
+          {busy ? 'Uploading…' : 'Choose file'}
         </label>
-        <p className="mt-2 text-xs text-slate-500">or drag &amp; drop a .csv here</p>
+        <p className="mt-2 text-xs text-slate-500">or drag &amp; drop a .csv, .xlsx or .xls here</p>
       </div>
+
+      {pendingExcel && (
+        <div
+          data-testid="sheet-picker"
+          className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-3"
+        >
+          <p className="text-xs font-semibold text-indigo-800">
+            Pick a sheet from “{pendingExcel.file.name}”
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {pendingExcel.sheets.map(sheet => (
+              <button
+                key={sheet}
+                type="button"
+                data-testid="sheet-option"
+                disabled={busy}
+                onClick={() => void doUpload(pendingExcel.file, sheet)}
+                className="rounded-full border border-indigo-300 bg-white px-3 py-1 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-50"
+              >
+                {sheet}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setPendingExcel(null)}
+            className="mt-2 text-[11px] font-medium text-indigo-500 hover:underline"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
 
       {busy && (
         <div data-testid="upload-loading" className="mt-3 flex items-center gap-2 text-sm text-indigo-600">
@@ -116,7 +190,7 @@ export default function UploadPanel({ active, onUploaded }: UploadPanelProps) {
       ) : (
         !busy && (
           <p data-testid="upload-empty" className="mt-4 text-xs text-slate-400">
-            No dataset loaded yet — upload a CSV to begin.
+            No dataset loaded yet — upload a CSV or Excel file to begin.
           </p>
         )
       )}

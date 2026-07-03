@@ -1,26 +1,50 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import type { Dataset, Run } from '@/lib/api'
-import { listRuns } from '@/lib/api'
+import type { Dataset, PinnedItem, Run } from '@/lib/api'
+import { fetchDashboard, listDatasets, listRuns, unpinItem } from '@/lib/api'
 import UploadPanel from '@/components/UploadPanel'
+import DatasetSwitcher from '@/components/DatasetSwitcher'
 import ChatPanel from '@/components/ChatPanel'
 import HistoryPanel from '@/components/HistoryPanel'
 import ProfilePanel from '@/components/ProfilePanel'
-import StubCard from '@/components/StubCard'
-
-const STUBS = [
-  { title: 'Excel upload', description: 'Load .xlsx workbooks with a sheet picker.', phase: 'Phase 3', icon: '📈' },
-  { title: 'Multi-file compare', description: 'Load several datasets and ask cross-dataset questions.', phase: 'Phase 3', icon: '🔀' },
-  { title: 'Pinnable dashboard', description: 'Pin answers and charts to a curated, persistent dashboard.', phase: 'Phase 3', icon: '📌' },
-  { title: 'Exports', description: 'Download cleaned CSVs and formatted reports.', phase: 'Phase 3', icon: '⬇️' },
-]
+import Dashboard from '@/components/Dashboard'
 
 export default function Home() {
-  const [active, setActive] = useState<Dataset | null>(null)
+  const [datasets, setDatasets] = useState<Dataset[]>([])
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [datasetsLoading, setDatasetsLoading] = useState(false)
+  const [datasetsError, setDatasetsError] = useState<string | null>(null)
+
   const [runs, setRuns] = useState<Run[]>([])
   const [runsLoading, setRunsLoading] = useState(false)
   const [runsError, setRunsError] = useState<string | null>(null)
+
+  const [pinned, setPinned] = useState<PinnedItem[]>([])
+  const [pinnedLoading, setPinnedLoading] = useState(false)
+  const [pinnedError, setPinnedError] = useState<string | null>(null)
+
+  // The selected datasets, in selection order; the first is the primary that
+  // drives the profile + history panels.
+  const selected = selectedIds
+    .map(id => datasets.find(d => d.dataset_id === id))
+    .filter((d): d is Dataset => d != null)
+  const primary = selected[0] ?? null
+
+  const refreshDatasets = useCallback(async () => {
+    setDatasetsLoading(true)
+    setDatasetsError(null)
+    try {
+      const list = await listDatasets()
+      setDatasets(list)
+      return list
+    } catch (e) {
+      setDatasetsError(e instanceof Error ? e.message : 'Could not load datasets.')
+      return [] as Dataset[]
+    } finally {
+      setDatasetsLoading(false)
+    }
+  }, [])
 
   const refreshRuns = useCallback(async (datasetId: string) => {
     setRunsLoading(true)
@@ -34,18 +58,55 @@ export default function Home() {
     }
   }, [])
 
-  useEffect(() => {
-    if (active) void refreshRuns(active.dataset_id)
-    else setRuns([])
-  }, [active, refreshRuns])
+  const refreshDashboard = useCallback(async () => {
+    setPinnedLoading(true)
+    setPinnedError(null)
+    try {
+      setPinned(await fetchDashboard())
+    } catch (e) {
+      setPinnedError(e instanceof Error ? e.message : 'Could not load dashboard.')
+    } finally {
+      setPinnedLoading(false)
+    }
+  }, [])
 
-  const handleUploaded = (ds: Dataset) => {
-    setActive(ds)
-    setRuns([])
+  // Load the dataset list + persisted dashboard once on mount.
+  useEffect(() => {
+    void (async () => {
+      const list = await refreshDatasets()
+      if (list.length > 0) setSelectedIds([list[0].dataset_id])
+    })()
+    void refreshDashboard()
+  }, [refreshDatasets, refreshDashboard])
+
+  // Keep history in sync with the primary selected dataset.
+  useEffect(() => {
+    if (primary) void refreshRuns(primary.dataset_id)
+    else setRuns([])
+  }, [primary, refreshRuns])
+
+  const handleUploaded = async (ds: Dataset) => {
+    await refreshDatasets()
+    // Make the freshly uploaded dataset the primary (first-selected) so the
+    // profile + history focus on it, while keeping any prior selections in scope.
+    setSelectedIds(prev => [ds.dataset_id, ...prev.filter(id => id !== ds.dataset_id)])
+  }
+
+  const handleToggle = (id: string) => {
+    setSelectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
   }
 
   const handleRunComplete = () => {
-    if (active) void refreshRuns(active.dataset_id)
+    if (primary) void refreshRuns(primary.dataset_id)
+  }
+
+  const handleUnpin = async (itemId: string) => {
+    try {
+      await unpinItem(itemId)
+      setPinned(prev => prev.filter(p => p.id !== itemId))
+    } catch (e) {
+      setPinnedError(e instanceof Error ? e.message : 'Could not unpin item.')
+    }
   }
 
   return (
@@ -56,44 +117,37 @@ export default function Home() {
           <div>
             <h1 className="text-xl font-bold tracking-tight text-slate-900">Data Analysis Agent</h1>
             <p className="text-sm text-slate-500">
-              Upload a CSV and ask questions in plain language — the agent writes, runs and explains the pandas.
+              Upload CSV or Excel files, compare across datasets, and ask questions in plain language —
+              the agent writes, runs and explains the pandas.
             </p>
           </div>
         </div>
       </header>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[340px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)_320px]">
-        {/* Left column: upload + history */}
+      {/* The curated dashboard is the primary view — persisted pinned answers. */}
+      <div className="mb-6">
+        <Dashboard items={pinned} loading={pinnedLoading} error={pinnedError} onUnpin={handleUnpin} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
+        {/* Left column: upload + dataset switcher + profile + history */}
         <div className="space-y-6">
-          <UploadPanel active={active} onUploaded={handleUploaded} />
-          {active && <ProfilePanel profile={active.profile} />}
-          <HistoryPanel runs={runs} loading={runsLoading} error={runsError} hasDataset={!!active} />
+          <UploadPanel active={primary} onUploaded={ds => void handleUploaded(ds)} />
+          <DatasetSwitcher
+            datasets={datasets}
+            selectedIds={selectedIds}
+            onToggle={handleToggle}
+            loading={datasetsLoading}
+            error={datasetsError}
+          />
+          {primary && <ProfilePanel profile={primary.profile} />}
+          <HistoryPanel runs={runs} loading={runsLoading} error={runsError} hasDataset={!!primary} />
         </div>
 
         {/* Center column: chat */}
         <div className="min-h-[70vh] lg:h-[calc(100vh-8rem)]">
-          <ChatPanel active={active} onRunComplete={handleRunComplete} />
+          <ChatPanel datasets={selected} onRunComplete={handleRunComplete} onPinned={() => void refreshDashboard()} />
         </div>
-
-        {/* Right column: the product vision as labelled stubs */}
-        <aside className="lg:col-span-2 xl:col-span-1">
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-800">Coming soon</h2>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
-                Roadmap
-              </span>
-            </div>
-            <p className="mb-4 text-xs text-slate-400">
-              These are part of the vision but not yet functional. They are disabled placeholders, not bugs.
-            </p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1">
-              {STUBS.map(s => (
-                <StubCard key={s.title} {...s} />
-              ))}
-            </div>
-          </div>
-        </aside>
       </div>
     </main>
   )

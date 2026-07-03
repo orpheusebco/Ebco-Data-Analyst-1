@@ -52,6 +52,16 @@ export interface Run {
   created_at: string
 }
 
+export interface PinnedItem {
+  id: string
+  run_id: string
+  title: string
+  chart_spec: unknown | null
+  answer: string | null
+  position: number
+  created_at: string
+}
+
 // A parsed SSE event from POST /ask.
 export type AskEvent =
   | { type: 'status'; phase: string }
@@ -75,10 +85,14 @@ function envelopeError(env: Envelope<unknown> | undefined, status: number): stri
   return `Request failed (${status})`
 }
 
-/** Upload a CSV file and register it as a dataset. */
-export async function uploadDataset(file: File): Promise<Dataset> {
+/**
+ * Upload a CSV or Excel file and register it as a dataset. For Excel workbooks
+ * a specific `sheet` name may be supplied (obtained from `fetchExcelSheets`).
+ */
+export async function uploadDataset(file: File, sheet?: string): Promise<Dataset> {
   const form = new FormData()
   form.append('file', file)
+  if (sheet) form.append('sheet', sheet)
   const res = await fetch('/datasets', { method: 'POST', body: form })
   let env: Envelope<Dataset> | undefined
   try {
@@ -88,6 +102,24 @@ export async function uploadDataset(file: File): Promise<Dataset> {
   }
   if (!res.ok || !env.data) throw new Error(envelopeError(env, res.status))
   return env.data
+}
+
+/**
+ * Inspect an Excel workbook and return its sheet names, so the user can pick
+ * which sheet to load. CSV files never call this — they upload in one step.
+ */
+export async function fetchExcelSheets(file: File): Promise<string[]> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch('/datasets/excel/sheets', { method: 'POST', body: form })
+  let env: Envelope<{ sheets: string[] }> | undefined
+  try {
+    env = (await res.json()) as Envelope<{ sheets: string[] }>
+  } catch {
+    throw new Error(`Could not read workbook (${res.status})`)
+  }
+  if (!res.ok || !env.data) throw new Error(envelopeError(env, res.status))
+  return env.data.sheets
 }
 
 /** List all loaded datasets. */
@@ -104,6 +136,83 @@ export async function listRuns(datasetId: string): Promise<Run[]> {
   const env = (await res.json()) as Envelope<{ runs: Run[] }>
   if (!res.ok || !env.data) throw new Error(envelopeError(env, res.status))
   return env.data.runs
+}
+
+/** All pinned dashboard items, in display order. */
+export async function fetchDashboard(): Promise<PinnedItem[]> {
+  const res = await fetch('/dashboard')
+  const env = (await res.json()) as Envelope<{ items: PinnedItem[] }>
+  if (!res.ok || !env.data) throw new Error(envelopeError(env, res.status))
+  return env.data.items
+}
+
+/** Pin a completed run's answer/chart to the curated dashboard. */
+export async function pinRun(runId: string, title: string): Promise<PinnedItem> {
+  const res = await fetch(`/runs/${encodeURIComponent(runId)}/pin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  })
+  let env: Envelope<PinnedItem> | undefined
+  try {
+    env = (await res.json()) as Envelope<PinnedItem>
+  } catch {
+    throw new Error(`Pin failed (${res.status})`)
+  }
+  if (!res.ok || !env.data) throw new Error(envelopeError(env, res.status))
+  return env.data
+}
+
+/** Remove a pinned item from the dashboard. */
+export async function unpinItem(itemId: string): Promise<void> {
+  const res = await fetch(`/dashboard/${encodeURIComponent(itemId)}`, { method: 'DELETE' })
+  if (!res.ok) {
+    let message = `Unpin failed (${res.status})`
+    try {
+      const env = (await res.json()) as Envelope<unknown>
+      message = envelopeError(env, res.status)
+    } catch {
+      /* keep default */
+    }
+    throw new Error(message)
+  }
+}
+
+/**
+ * Export a run's cleaned CSV or formatted report and trigger a browser
+ * download. Reads the filename from Content-Disposition when present.
+ */
+export async function exportRun(runId: string, format: 'csv' | 'report'): Promise<void> {
+  const res = await fetch(`/runs/${encodeURIComponent(runId)}/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ format }),
+  })
+  if (!res.ok) {
+    let message = `Export failed (${res.status})`
+    try {
+      const env = (await res.json()) as Envelope<unknown>
+      message = envelopeError(env, res.status)
+    } catch {
+      /* keep default */
+    }
+    throw new Error(message)
+  }
+  const blob = await res.blob()
+  let filename = `${runId}.${format === 'csv' ? 'csv' : 'md'}`
+  const disposition = res.headers.get('Content-Disposition')
+  if (disposition) {
+    const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition)
+    if (match) filename = decodeURIComponent(match[1])
+  }
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
 }
 
 /**

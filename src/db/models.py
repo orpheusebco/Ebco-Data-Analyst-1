@@ -77,6 +77,20 @@ class DatasetProfile(Base):
     )
 
 
+class PinnedItem(Base):
+    __tablename__ = "pinned_items"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    chart_spec: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
+    answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=_now
+    )
+
+
 class TurnRow(Base):
     __tablename__ = "turns"
 
