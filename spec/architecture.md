@@ -1,68 +1,81 @@
 # Architecture
 
-> Fill in this section — see comments below.
-
 ---
 
 ## System Overview
 
-<!-- FILL IN: One paragraph describing the system at a high level. Who/what interacts with it? -->
+A single-process local web application. A Next.js browser UI talks to a FastAPI backend over REST + Server-Sent Events. The backend loads uploaded CSV/Excel files fully into an in-process pandas registry, and for each natural-language question runs a LangGraph agent that plans, generates pandas code with Gemini, executes it locally (no sandbox) against the in-memory DataFrames, inspects the result, and retries on failure. Answers stream token-by-token to the UI. All runs (query + generated code + result), dataset metadata, profiles, and pinned dashboard items are persisted in SQLite. Only the question, column schema, and small samples are ever sent to the LLM.
 
 ## Component Map
 
-<!-- FILL IN: List the major components and what each does. -->
-
 ```
-[Component A]
-    ↓
-[Component B]   ←→   [External Service]
-    ↓
-[Component C]
+[Next.js UI (browser)]
+        │  REST + SSE
+        ▼
+[FastAPI app] ──────────► [Gemini API]   (schema + samples only)
+        │
+        ├─► [Dataset Registry]  (in-memory pandas DataFrames, keyed by dataset_id)
+        │
+        ├─► [LangGraph Agent]  ──► [Local Python Executor]  (runs pandas, NO sandbox)
+        │
+        └─► [SQLite via SQLAlchemy]  (datasets, runs, profiles, pinned items)
 ```
 
 ## Layers
 
-<!-- FILL IN: Describe the layers of the system (e.g., API → Agent Loop → Tools → Storage). -->
-
 | Layer | Responsibility |
 |-------|----------------|
-| <!-- layer --> | <!-- responsibility --> |
+| API (`src/api/`) | REST endpoints + SSE streaming; request validation; router registration |
+| Agent (`src/graph/`) | LangGraph state, nodes, edges, runner — the plan/write/execute/inspect/retry loop |
+| Analysis (`src/analysis/`) | Local code executor, profiler, chart-spec builder, exporters |
+| Datasets (`src/datasets/`) | In-memory registry: load CSV/Excel, hold DataFrames, expose schema + samples |
+| LLM (`src/llm/`) | Gemini client (already wired) |
+| Storage (`src/db/`) | SQLAlchemy models + session; Alembic migrations |
+| Observability (`src/observability/`) | Structured logging of prompts, generated code, execution results, latency |
 
 ## Data Flow
 
-<!-- FILL IN: Walk through the main data flow from trigger to output. -->
-
-1. Trigger: <!-- how does the agent start? (cron, webhook, user input, etc.) -->
-2. <!-- step 2 -->
-3. <!-- step 3 -->
-4. Output: <!-- what does the agent produce? -->
+1. Trigger: user uploads a file (`POST /datasets`) → registry loads it into a pandas DataFrame; a `Dataset` row is persisted. (Phase 2+: profiling node runs on upload.)
+2. User asks a question (`POST /ask`, SSE) with `dataset_id`(s) + question text.
+3. Runner creates a `Run` row, builds `AgentState` (question, schema, samples, conversation history), invokes the graph.
+4. Graph: `plan` → `write_code` → `execute` → `inspect` → (retry `write_code` on failure, up to N) → (`clarify` if ambiguous) → `narrate` (streams answer) → (Phase 2+: `chart`, `suggest_followups`) → `finalize`.
+5. Output: streamed plain-language answer + key numbers (+ chart JSON + follow-ups in later phases); the `Run` row is updated with generated code, result, status.
 
 ## External Dependencies
 
-<!-- FILL IN: APIs, services, databases the agent depends on. -->
-
 | Dependency | Purpose | Failure Mode |
 |------------|---------|--------------|
-| <!-- name --> | <!-- what it does --> | <!-- what happens if it's down --> |
+| Gemini API | Plan, generate pandas, narrate answer, pick chart, suggest follow-ups | Retry with backoff; after N failures set `state.error`, surface a clear error in the stream, mark run failed |
+| SQLite (local file) | Persist datasets, runs, profiles, pinned items | Fatal — surface 500; app cannot run without it |
+| Local filesystem | Uploaded files + exported files under `data/` | Surface 400/500 with clear message |
 
 ## Stack
 
-> This project's concrete technology choices (captured at intake, filled by the spec-writer). The generic, every-project rules — model-naming, DB driver, dev port, test environment — live in `harness/patterns/tech-stack.md`; this section is only what **this** project picked.
-
-- **Language:** <!-- FILL IN: e.g., Python 3.12 -->
-- **Agent framework:** <!-- FILL IN: e.g., LangGraph / custom / none -->
-- **LLM provider + model:** <!-- FILL IN: e.g., Anthropic / claude-sonnet-4-6 -->
-- **Backend:** <!-- FILL IN: e.g., FastAPI / none -->
-- **Database + ORM:** <!-- FILL IN: e.g., PostgreSQL + SQLAlchemy 2.0 / none -->
-- **Frontend:** <!-- FILL IN: e.g., Next.js / none -->
-- **Dependency management:** <!-- FILL IN: e.g., uv + pyproject.toml -->
+- **Language:** Python 3.12 (backend), TypeScript (frontend)
+- **Agent framework:** LangGraph (multi-node loop with conditional retry/clarify edges)
+- **LLM provider + model:** Google Gemini via `AGENT_GEMINI_API_KEY`; model `gemini-2.5-pro` for plan/write-code/narrate, `gemini-2.5-flash` for chart-spec + follow-up suggestions (env-configurable via `AGENT_LLM_MODEL`; provider auto-detected)
+- **Backend:** FastAPI (with SSE streaming via `StreamingResponse`)
+- **Database + ORM:** SQLite + SQLAlchemy 2.0 + Alembic
+- **Frontend:** Next.js 15 + React 19 + Tailwind (static-exported, served at `:8001/app/`)
+- **Dependency management:** uv + pyproject.toml (backend); pnpm (frontend)
 
 | Key library | Version | Purpose |
 |-------------|---------|---------|
-| <!-- name --> | <!-- ver --> | <!-- purpose --> |
+| pandas | ^2.2 | Local data loading + analysis |
+| openpyxl | ^3.1 | Excel (.xlsx) ingestion (Phase 3) |
+| numpy | (pandas dep) | Numeric ops available to generated code |
+| plotly | ^5.24 | Chart-spec JSON generation (Phase 2) |
+| google-genai | (already present) | Gemini client |
+| langgraph | (already present) | Agent graph |
+| fastapi / sqlalchemy / alembic | (already present) | API + storage |
+| Playwright | ^1.48 | Frontend E2E smoke tests |
 
-**Avoid:** <!-- FILL IN: libraries/patterns explicitly off-limits, and why -->
+> **Assumed:** Gemini model IDs `gemini-2.5-pro` / `gemini-2.5-flash` (not specified in the brief); overridable via `AGENT_LLM_MODEL`, so a single value applies to all nodes unless the code sets per-node overrides.
+
+**Avoid:** any code-sandbox library (explicitly out of scope — trusted local machine); any cloud object storage; SQLAlchemy async engine (keep the sync session the skeleton already uses); sending full DataFrames or full columns to the LLM.
 
 ## Deployment Model
 
-<!-- FILL IN: How does this run? (local script, cloud function, long-running service, etc.) -->
+Long-running local single-process service started with `uv run python -m src` (serves API + static frontend on `:8001`). Single user, no auth, no container required. Datasets live in memory for the process lifetime; metadata/runs/pins persist in SQLite across restarts (DataFrames must be re-uploaded after a restart — an accepted limitation).
+
+> **Assumed:** in-memory DataFrame registry is not rehydrated on restart; the user re-uploads files after restarting the process. This keeps Phase 1 simple and matches the single-session workflow in the brief.
