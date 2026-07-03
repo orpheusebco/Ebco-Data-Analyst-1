@@ -157,6 +157,15 @@ def build_chart_spec_from_choice(
         if not y_cols:
             return None
 
+        # For a single-series bar chart of categories, sort by magnitude so the
+        # comparison reads largest-to-smallest instead of in arbitrary row order.
+        if chart_type == "bar" and len(y_cols) == 1:
+            try:
+                df = df.sort_values(by=y_cols[0], ascending=False)
+                x_values = _clean_list(df[x_col])
+            except Exception:  # noqa: BLE001 - never let sorting break the chart
+                pass
+
         mode_map = {"scatter": "markers", "line": "lines"}
         plotly_type = "bar" if chart_type == "bar" else "scatter"
 
