@@ -6,15 +6,12 @@ import { listRuns } from '@/lib/api'
 import UploadPanel from '@/components/UploadPanel'
 import ChatPanel from '@/components/ChatPanel'
 import HistoryPanel from '@/components/HistoryPanel'
+import ProfilePanel from '@/components/ProfilePanel'
 import StubCard from '@/components/StubCard'
 
 const STUBS = [
   { title: 'Excel upload', description: 'Load .xlsx workbooks with a sheet picker.', phase: 'Phase 3', icon: '📈' },
   { title: 'Multi-file compare', description: 'Load several datasets and ask cross-dataset questions.', phase: 'Phase 3', icon: '🔀' },
-  { title: 'Interactive charts', description: 'The agent picks a chart type and renders it inline (zoom / hover / filter).', phase: 'Phase 2', icon: '📊' },
-  { title: 'Auto-profiling', description: 'Columns, types, ranges and missing values appear on upload.', phase: 'Phase 2', icon: '🔎' },
-  { title: 'Data-quality flags', description: 'Automatic warnings for nulls, duplicates and outliers.', phase: 'Phase 2', icon: '🚩' },
-  { title: 'Follow-up suggestions', description: 'Clickable follow-up questions after each answer.', phase: 'Phase 2', icon: '💡' },
   { title: 'Pinnable dashboard', description: 'Pin answers and charts to a curated, persistent dashboard.', phase: 'Phase 3', icon: '📌' },
   { title: 'Exports', description: 'Download cleaned CSVs and formatted reports.', phase: 'Phase 3', icon: '⬇️' },
 ]
@@ -69,6 +66,7 @@ export default function Home() {
         {/* Left column: upload + history */}
         <div className="space-y-6">
           <UploadPanel active={active} onUploaded={handleUploaded} />
+          {active && <ProfilePanel profile={active.profile} />}
           <HistoryPanel runs={runs} loading={runsLoading} error={runsError} hasDataset={!!active} />
         </div>
 

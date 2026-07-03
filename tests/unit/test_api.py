@@ -25,7 +25,19 @@ def test_upload_and_list_dataset(api_client):
     assert data["row_count"] == 10
     assert data["column_count"] == 2
     assert data["kind"] == "csv"
-    assert data["profile"] is None
+    # Phase 2: profile flows through the upload response
+    assert isinstance(data["profile"], dict)
+    assert data["profile"]["column_count"] == 2
+    assert isinstance(data["profile"]["columns"], list)
+    assert isinstance(data["profile"]["quality_flags"], list)
+
+    ds_id = data["dataset_id"]
+    rp = api_client.get(f"/datasets/{ds_id}/profile")
+    assert rp.status_code == 200
+    assert rp.json()["data"]["profile"]["column_count"] == 2
+
+    r_missing = api_client.get("/datasets/nope/profile")
+    assert r_missing.status_code == 404
 
     r2 = api_client.get("/datasets")
     names = [d["name"] for d in r2.json()["data"]["datasets"]]

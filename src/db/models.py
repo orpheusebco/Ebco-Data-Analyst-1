@@ -66,6 +66,17 @@ class DatasetRow(Base):
     )
 
 
+class DatasetProfile(Base):
+    __tablename__ = "dataset_profiles"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
+    dataset_id: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    profile_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, default=_now
+    )
+
+
 class TurnRow(Base):
     __tablename__ = "turns"
 

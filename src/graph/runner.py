@@ -74,6 +74,9 @@ def _persist_final(run_id: str, scope_key: str, question: str, final: AgentState
         run.result_text = result_text or None
         run.answer = final.get("answer")
         run.output_text = final.get("answer")
+        chart_spec = final.get("chart_spec")
+        run.chart_spec = json.dumps(chart_spec) if chart_spec is not None else None
+        run.followups = json.dumps(final.get("followups") or [])
         run.clarifying_question = final.get("clarifying_question")
         run.error_message = final.get("error")
         run.completed_at = _now()

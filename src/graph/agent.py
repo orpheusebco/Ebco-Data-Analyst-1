@@ -8,6 +8,8 @@ from graph.nodes import (
     inspect,
     clarify,
     narrate,
+    chart,
+    suggest_followups,
     finalize,
     handle_error,
 )
@@ -23,6 +25,8 @@ def _build_graph():
     g.add_node("inspect", inspect)
     g.add_node("clarify", clarify)
     g.add_node("narrate", narrate)
+    g.add_node("chart", chart)
+    g.add_node("suggest_followups", suggest_followups)
     g.add_node("finalize", finalize)
     g.add_node("handle_error", handle_error)
 
@@ -51,7 +55,9 @@ def _build_graph():
     )
 
     g.add_edge("clarify", END)
-    g.add_edge("narrate", "finalize")
+    g.add_edge("narrate", "chart")
+    g.add_edge("chart", "suggest_followups")
+    g.add_edge("suggest_followups", "finalize")
     g.add_edge("finalize", END)
     g.add_edge("handle_error", END)
 

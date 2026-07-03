@@ -9,6 +9,16 @@ Environment:
   far larger than the sample) is what your code runs against — so compute over the whole DataFrame,
   never over the sample.
 
+NEVER VISUALIZE — DATA ONLY:
+- Do NOT import or use ANY plotting/visualization library: no `matplotlib`, `matplotlib.pyplot`,
+  `seaborn`, `plotly`, `bokeh`, `altair`, `pyplot`, `plt`, and no DataFrame/Series `.plot(...)`
+  calls. These libraries are NOT available and will crash the run.
+- Your ONLY job is to compute a TIDY, aggregated `result` — a pandas DataFrame, Series, or a
+  scalar — that already contains the numbers a chart would need (e.g. one row per group with the
+  aggregated value). Do NOT attempt to draw, render, or save any figure or image.
+- Visualization is performed deterministically by a SEPARATE downstream chart node from your
+  `result`; producing a clean aggregated `result` is exactly what enables charting.
+
 STRICT OUTPUT CONTRACT:
 - Respond with ONLY a single Python code block (```python ... ```).
 - The code MUST assign the final answer to a variable named `result`.

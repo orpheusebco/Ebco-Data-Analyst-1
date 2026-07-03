@@ -33,3 +33,10 @@ async def upload_dataset(file: UploadFile = File(...)) -> dict:
 @router.get("/datasets")
 def list_datasets() -> dict:
     return ok({"datasets": store.list_datasets()})
+
+
+@router.get("/datasets/{dataset_id}/profile")
+def get_dataset_profile(dataset_id: str) -> dict:
+    if not store.dataset_exists(dataset_id):
+        raise api_error("DATASET_NOT_FOUND", "Unknown dataset_id.", 404)
+    return ok({"profile": store.get_profile(dataset_id)})

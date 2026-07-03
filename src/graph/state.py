@@ -17,12 +17,16 @@ class AgentState(TypedDict, total=False):
     exec_result: Any
     exec_stdout: str | None
     exec_error: str | None
+    last_good_result: Any  # most recent successful exec_result across retries
+    last_good_stdout: str | None
     inspection: dict | None
     attempts: int
     clarifying_question: str | None
 
     # Output
     answer: str | None
+    chart_spec: dict | None
+    followups: list[str]
 
     # Control
     error: str | None

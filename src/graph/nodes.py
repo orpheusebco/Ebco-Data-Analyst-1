@@ -8,7 +8,9 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from typing import Any
 
+from analysis import charts
 from analysis.executor import execute_code, render_result, strip_code_fences
 from config.settings import get_settings
 from datasets import store
@@ -153,11 +155,21 @@ def execute(state: AgentState) -> AgentState:
             latency_ms=latency,
             error=exec_error,
         )
+    # Preserve the most recent SUCCESSFUL result across retry attempts. If a later
+    # attempt errors out (e.g. the model regressed into an unavailable import), the
+    # chart node can still fall back to this last-good chartable result.
+    last_good_result = state.get("last_good_result")
+    last_good_stdout = state.get("last_good_stdout")
+    if exec_error is None and result is not None:
+        last_good_result = result
+        last_good_stdout = stdout
     return {
         **state,
         "exec_result": result,
         "exec_stdout": stdout,
         "exec_error": exec_error,
+        "last_good_result": last_good_result,
+        "last_good_stdout": last_good_stdout,
         "error": None,
     }
 
@@ -282,6 +294,110 @@ def narrate(state: AgentState) -> AgentState:
         return {**state, "answer": answer, "messages": messages, "error": None}
     except Exception as exc:  # noqa: BLE001
         return {**state, "error": f"narrate failed: {exc}"}
+
+
+def _result_description(state: AgentState, limit: int = 1500, result: Any = None) -> str:
+    """A compact, LLM-safe description of the exec result — never the full data."""
+    if result is None:
+        result = state.get("exec_result")
+    lines: list[str] = []
+    try:
+        import pandas as pd  # local import keeps module import light
+
+        if isinstance(result, pd.DataFrame):
+            cols = ", ".join(f"{c} ({result[c].dtype})" for c in result.columns)
+            lines.append(f"DataFrame shape={result.shape}; columns: {cols}")
+            lines.append("Sample rows:")
+            lines.append(result.head(10).to_string())
+        elif isinstance(result, pd.Series):
+            name = result.name if result.name is not None else "value"
+            lines.append(
+                f"Series name={name} dtype={result.dtype} length={len(result)}"
+            )
+            lines.append(result.head(15).to_string())
+        elif isinstance(result, dict):
+            keys = ", ".join(str(k) for k in list(result.keys())[:20])
+            lines.append(f"dict with keys: {keys}")
+            lines.append(render_result(result, limit=800))
+        else:
+            lines.append(f"Scalar/other result: {render_result(result, limit=400)}")
+    except Exception as exc:  # noqa: BLE001
+        lines.append(f"(could not describe result: {exc})")
+    text = "\n".join(lines)
+    return text[:limit] + ("\n... [truncated]" if len(text) > limit else "")
+
+
+def chart(state: AgentState) -> AgentState:
+    _emit(state, {"type": "status", "phase": "charting"})
+    obs = _obs(state)
+    try:
+        # Prefer the final result, but if the last attempt errored, fall back to the
+        # most recent successful result from an earlier attempt so a transient/plotting
+        # failure on the final retry does not silently swallow a chartable result.
+        chart_result = state.get("exec_result")
+        if state.get("exec_error") or chart_result is None:
+            chart_result = state.get("last_good_result")
+        # Genuinely nothing to chart (no attempt ever produced a result) -> skip cleanly.
+        if chart_result is None:
+            return {**state, "chart_spec": None, "error": None}
+
+        prompt = (
+            f"Question: {state['question']}\n\n"
+            f"Result description:\n{_result_description(state, result=chart_result)}"
+        )
+        t0 = time.perf_counter()
+        raw = LLMClient().call_model(
+            prompt,
+            system=_load_prompt("chart.md"),
+            model=_model(MODEL_FLASH_DEFAULT),
+        )
+        choice = _parse_json_object(raw)
+        spec = None
+        if choice.get("chart"):
+            spec = charts.build_chart_spec_from_choice(
+                choice, chart_result, state["question"]
+            )
+        if obs:
+            obs.llm("chart", _model(MODEL_FLASH_DEFAULT), len(prompt),
+                    (time.perf_counter() - t0) * 1000)
+            obs.node("chart", has_chart=spec is not None)
+        if spec is not None:
+            _emit(state, {"type": "chart", "spec": spec})
+        return {**state, "chart_spec": spec, "error": None}
+    except Exception as exc:  # noqa: BLE001 - chart failure is never fatal
+        if obs:
+            obs.node("chart", error=str(exc))
+        return {**state, "chart_spec": None, "error": None}
+
+
+def suggest_followups(state: AgentState) -> AgentState:
+    obs = _obs(state)
+    try:
+        prompt = (
+            f"Question: {state['question']}\n\n"
+            f"Answer: {state.get('answer', '')}\n\n"
+            f"Schema:\n{_schema_text(state.get('schema', {}))}"
+        )
+        t0 = time.perf_counter()
+        raw = LLMClient().call_model(
+            prompt,
+            system=_load_prompt("followups.md"),
+            model=_model(MODEL_FLASH_DEFAULT),
+        )
+        parsed = _parse_json_object(raw)
+        items_raw = parsed.get("items") or []
+        items = [str(s).strip() for s in items_raw if str(s).strip()][:3]
+        if obs:
+            obs.llm("suggest_followups", _model(MODEL_FLASH_DEFAULT), len(prompt),
+                    (time.perf_counter() - t0) * 1000)
+            obs.node("suggest_followups", count=len(items))
+        if items:
+            _emit(state, {"type": "followups", "items": items})
+        return {**state, "followups": items, "error": None}
+    except Exception as exc:  # noqa: BLE001 - followups failure is never fatal
+        if obs:
+            obs.node("suggest_followups", error=str(exc))
+        return {**state, "followups": [], "error": None}
 
 
 def finalize(state: AgentState) -> AgentState:

@@ -14,10 +14,18 @@ def test_load_csv_persists_and_registers(_isolated_db):
     assert result["kind"] == "csv"
     assert result["row_count"] == 30
     assert result["column_count"] == 2
-    assert result["profile"] is None
+    # Phase 2: profile is computed and persisted on upload
+    assert isinstance(result["profile"], dict)
+    assert result["profile"]["row_count"] == 30
+    assert result["profile"]["column_count"] == 2
     ds_id = result["dataset_id"]
     assert store.dataset_exists(ds_id)
     assert store.get_dataframe(ds_id) is not None
+    # persisted profile is loadable
+    loaded = store.get_profile(ds_id)
+    assert isinstance(loaded, dict)
+    assert loaded["column_count"] == 2
+    assert store.get_profile("does-not-exist") is None
 
 
 def test_schema_and_samples_caps_rows(_isolated_db):

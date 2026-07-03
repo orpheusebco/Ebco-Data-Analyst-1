@@ -19,7 +19,7 @@ const CSV = [
 ].join('\n')
 
 test('upload a CSV, ask a question, get a streamed answer, see it in history', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('')
 
   // 1. Upload.
   await page.getByTestId('dropzone').scrollIntoViewIfNeeded()
@@ -32,6 +32,18 @@ test('upload a CSV, ask a question, get a streamed answer, see it in history', a
   const active = page.getByTestId('active-dataset')
   await expect(active).toBeVisible({ timeout: 30_000 })
   await expect(active).toContainText('sales.csv')
+
+  // 1b. Auto-profiling panel appears on upload. When the backend supplies a
+  // real profile (POST /datasets -> profile), the columns render; otherwise the
+  // panel still renders its "no profile" state (backend profile is optional).
+  const profile = page.getByTestId('profile-panel')
+  await expect(profile).toBeVisible({ timeout: 30_000 })
+  const columns = profile.getByTestId('profile-column')
+  if ((await columns.count()) > 0) {
+    await expect(columns.first()).toBeVisible()
+    await expect(profile).toContainText('region')
+    await expect(profile).toContainText('revenue')
+  }
 
   // 2. Ask a question.
   const input = page.getByTestId('question-input')
@@ -53,4 +65,15 @@ test('upload a CSV, ask a question, get a streamed answer, see it in history', a
   // 4. The run is persisted and shows in history.
   await expect(page.getByTestId('history-list')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByTestId('history-list')).toContainText('average revenue')
+
+  // 5. If the agent produced follow-up suggestions, they are clickable chips
+  // that submit a fresh question. Charts are best-effort (the agent decides).
+  const chips = page.getByTestId('followup-chip')
+  if ((await chips.count()) > 0) {
+    const turnsBefore = await page.getByTestId('user-message').count()
+    await chips.first().click()
+    await expect
+      .poll(async () => page.getByTestId('user-message').count(), { timeout: 30_000 })
+      .toBeGreaterThan(turnsBefore)
+  }
 })

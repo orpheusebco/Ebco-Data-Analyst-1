@@ -8,13 +8,38 @@
 
 export type DatasetKind = 'csv' | 'xlsx'
 
+export interface ProfileColumn {
+  name: string
+  dtype: string
+  null_count: number
+  null_pct: number
+  distinct_count: number
+  min: string | number | null
+  max: string | number | null
+  sample_values: string[]
+}
+
+export interface QualityFlag {
+  type: string
+  severity: 'warning' | 'info'
+  message: string
+  columns: string[]
+}
+
+export interface DatasetProfile {
+  row_count: number
+  column_count: number
+  columns: ProfileColumn[]
+  quality_flags: QualityFlag[]
+}
+
 export interface Dataset {
   dataset_id: string
   name: string
   kind: DatasetKind
   row_count: number
   column_count: number
-  profile?: unknown | null
+  profile?: DatasetProfile | null
 }
 
 export interface Run {
@@ -34,6 +59,8 @@ export type AskEvent =
   | { type: 'clarify'; question: string }
   | { type: 'done'; run_id: string; status: string }
   | { type: 'error'; message: string }
+  | { type: 'chart'; spec: unknown }
+  | { type: 'followups'; items: string[] }
   | { type: 'unknown'; event: string; data: unknown }
 
 interface Envelope<T> {
@@ -168,6 +195,13 @@ function parseFrame(frame: string): AskEvent | null {
       }
     case 'error':
       return { type: 'error', message: String(payload.message ?? 'Unknown error') }
+    case 'chart':
+      return { type: 'chart', spec: payload.spec ?? payload }
+    case 'followups': {
+      const raw = payload.items
+      const items = Array.isArray(raw) ? raw.map(String) : []
+      return { type: 'followups', items }
+    }
     default:
       return { type: 'unknown', event, data: payload }
   }

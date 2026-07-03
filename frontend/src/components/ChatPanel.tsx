@@ -5,6 +5,8 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { AskEvent, Dataset } from '@/lib/api'
 import { ask } from '@/lib/api'
+import ChartView from '@/components/ChartView'
+import FollowUps from '@/components/FollowUps'
 
 interface Turn {
   id: string
@@ -13,6 +15,8 @@ interface Turn {
   clarify: string | null
   error: string | null
   status: string // '' when settled
+  chartSpec: unknown | null
+  followups: string[]
 }
 
 const PHASE_LABEL: Record<string, string> = {
@@ -41,11 +45,18 @@ export default function ChatPanel({ active, onRunComplete }: ChatPanelProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    const question = input.trim()
+    await runQuestion(input.trim())
+  }
+
+  async function runQuestion(raw: string) {
+    const question = raw.trim()
     if (!question || !active || streaming) return
 
     const id = `${Date.now()}`
-    setTurns(prev => [...prev, { id, question, answer: '', clarify: null, error: null, status: 'planning' }])
+    setTurns(prev => [
+      ...prev,
+      { id, question, answer: '', clarify: null, error: null, status: 'planning', chartSpec: null, followups: [] },
+    ])
     setInput('')
     setStreaming(true)
     setPhase('planning')
@@ -64,6 +75,12 @@ export default function ChatPanel({ active, onRunComplete }: ChatPanelProps) {
           break
         case 'clarify':
           update({ clarify: ev.question, status: '' })
+          break
+        case 'chart':
+          update({ chartSpec: ev.spec })
+          break
+        case 'followups':
+          update({ followups: ev.items })
           break
         case 'error':
           update({ error: ev.message, status: '' })
@@ -142,6 +159,10 @@ export default function ChatPanel({ active, onRunComplete }: ChatPanelProps) {
                     )}
                     {turn.status && turn.answer && (
                       <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-indigo-400 align-middle" aria-hidden />
+                    )}
+                    {turn.chartSpec != null && <ChartView spec={turn.chartSpec} />}
+                    {turn.followups.length > 0 && (
+                      <FollowUps items={turn.followups} onSelect={q => void runQuestion(q)} disabled={streaming} />
                     )}
                     {turn.clarify && (
                       <div

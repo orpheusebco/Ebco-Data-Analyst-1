@@ -7,7 +7,7 @@ import { test, expect } from '@playwright/test'
 // that the static export is served and wired.
 
 test('workspace loads, is styled, and shows core controls + labelled stubs', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('')
 
   // Real content, not a blank shell.
   await expect(page.getByRole('heading', { name: 'Data Analysis Agent' })).toBeVisible()
@@ -34,9 +34,17 @@ test('workspace loads, is styled, and shows core controls + labelled stubs', asy
   // Labelled stubs are present and badged as coming soon.
   const badges = page.getByTestId('coming-soon-badge')
   await expect(badges.first()).toBeVisible()
-  expect(await badges.count()).toBeGreaterThanOrEqual(6)
+  expect(await badges.count()).toBeGreaterThanOrEqual(4)
   await expect(page.getByText('Excel upload')).toBeVisible()
-  await expect(page.getByText('Interactive charts')).toBeVisible()
+  await expect(page.getByText('Multi-file compare')).toBeVisible()
+  await expect(page.getByText('Pinnable dashboard')).toBeVisible()
+  await expect(page.getByText('Exports')).toBeVisible()
+
+  // The now-shipped Phase 2 features are no longer labelled stubs.
+  await expect(page.getByText('Interactive charts')).toHaveCount(0)
+  await expect(page.getByText('Auto-profiling')).toHaveCount(0)
+  await expect(page.getByText('Data-quality flags')).toHaveCount(0)
+  await expect(page.getByText('Follow-up suggestions')).toHaveCount(0)
 
   // Stub cards are non-interactive placeholders.
   await expect(page.getByTestId('stub-card').first()).toHaveAttribute('aria-disabled', 'true')

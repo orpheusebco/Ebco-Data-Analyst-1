@@ -13,8 +13,9 @@ from uuid import uuid4
 
 import pandas as pd
 
+from analysis.profiler import build_profile
 from config.settings import get_settings
-from db.models import DatasetRow
+from db.models import DatasetProfile, DatasetRow
 from db.session import create_db_session
 
 SAMPLE_ROWS = 20
@@ -64,6 +65,8 @@ def load_csv(file_bytes: bytes, name: str) -> dict:
     row_count = int(df.shape[0])
     column_count = int(df.shape[1])
 
+    profile = build_profile(df)
+
     with create_db_session() as session:
         session.add(
             DatasetRow(
@@ -75,6 +78,12 @@ def load_csv(file_bytes: bytes, name: str) -> dict:
                 column_count=column_count,
             )
         )
+        session.add(
+            DatasetProfile(
+                dataset_id=dataset_id,
+                profile_json=json.dumps(profile),
+            )
+        )
 
     return {
         "dataset_id": dataset_id,
@@ -82,8 +91,22 @@ def load_csv(file_bytes: bytes, name: str) -> dict:
         "kind": "csv",
         "row_count": row_count,
         "column_count": column_count,
-        "profile": None,
+        "profile": profile,
     }
+
+
+def get_profile(dataset_id: str) -> dict | None:
+    """Load and parse the persisted data profile for a dataset (reads DB)."""
+    with create_db_session() as session:
+        row = (
+            session.query(DatasetProfile)
+            .filter(DatasetProfile.dataset_id == dataset_id)
+            .order_by(DatasetProfile.created_at.desc())
+            .first()
+        )
+        if row is None:
+            return None
+        return json.loads(row.profile_json)
 
 
 def _reload_from_disk(dataset_id: str) -> pd.DataFrame | None:
