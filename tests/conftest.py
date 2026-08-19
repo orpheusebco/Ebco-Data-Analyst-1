@@ -16,7 +16,10 @@ def _isolated_db(tmp_path, monkeypatch):
     from db.models import Base
     import db.session as session_module
 
-    engine = create_engine(f"sqlite:///{tmp_path}/test.db")
+    engine = create_engine(
+        f"sqlite:///{tmp_path}/test.db",
+        connect_args={"check_same_thread": False},
+    )
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     monkeypatch.setattr(session_module, "_engine", engine)

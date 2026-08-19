@@ -1,12 +1,15 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
-class RunRequest(BaseModel):
-    input_text: str
+class AskRequest(BaseModel):
+    dataset_ids: list[str] = Field(min_length=1)
+    question: str
 
 
-class RunResponse(BaseModel):
-    run_id: str
-    status: str
-    output_text: str | None = None
-    error: str | None = None
+class DatasetResponse(BaseModel):
+    dataset_id: str
+    name: str
+    kind: str
+    row_count: int
+    column_count: int
+    profile: dict | None = None

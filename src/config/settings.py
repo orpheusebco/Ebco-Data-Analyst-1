@@ -21,6 +21,15 @@ class Settings(BaseSettings):
     anthropic_api_key: str = Field(default="")
     gemini_api_key: str = Field(default="")
 
+    # Agent tuning
+    max_attempts: int = Field(default=4)
+    history_turns: int = Field(default=12)
+
+    # Local storage
+    uploads_dir: str = Field(default="./data/uploads")
+    exports_dir: str = Field(default="./data/exports")
+    max_upload_bytes: int = Field(default=100 * 1024 * 1024)
+
 
 _settings: Settings | None = None
 
